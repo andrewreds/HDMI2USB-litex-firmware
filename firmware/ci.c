@@ -82,6 +82,24 @@ static void help_hdp_toggle(void)
 	wputs("hdp_toggle <source>              - toggle HDP on source for EDID rescan");
 }
 
+static void help_pattern(void)
+{
+	int i;
+
+	wputs("pattern (p)                     - select next pattern");
+	wputs("pattern (p) <name/id> [<param>] - select pattern <name>. param is an int <0-255>");
+
+	for(i=0;; i++) {
+		if(pattern_all_metadata[i].name == NULL) {
+			// We have reached the end of the array
+			break;
+		}
+
+		wprintf("    %2d: %10s - %s\n", i,
+			pattern_all_metadata[i].name, pattern_all_metadata[i].desc);
+	}
+}
+
 static void help_status(void)
 {
 	wputs("status commands (alias: 's')");
@@ -190,7 +208,7 @@ static void ci_help(void)
 	wputs("mdio_dump   - dump mdio registers");
 	wputs("mdio_status - show mdio status");
 #endif
-	wputs("pattern (p) - select next pattern");
+	help_pattern();
 	wputs("version - show firmware version");
 	wputs("");
 	help_status();
@@ -1194,9 +1212,15 @@ void ci_service(void)
 			help_encoder();
 	}
 #endif
-	else if((strcmp(token, "p") == 0) || (strcmp(token, "p") == 0)) {
-		pattern_next();
-		wprintf("Pattern now %d\n", pattern);
+	else if((strcmp(token, "pattern") == 0) || (strcmp(token, "p") == 0)) {
+		token = get_token(&str);
+
+		if (pattern_load(token, get_token(&str))) {
+			wprintf("Failed to load pattern %s\n", token);
+		} else {
+			wprintf("now showing pattern %s\n",
+					pattern_all_metadata[pattern_current].name);
+		}
 	}
 	else if((strcmp(token, "status") == 0) || (strcmp(token, "s") == 0)) {
 		token = get_token(&str);

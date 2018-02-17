@@ -25,14 +25,20 @@
 
 unsigned int pattern_framebuffer_base(void);
 
-enum {
-	PATTERN_COLOR_BARS = 0,
-	PATTERN_VERTICAL_BLACK_WHITE_LINES = 1,
-	PATTERN_MAX,
-} pattern;
+/* metadata used to describe a pattern, and how to render it */
+struct pattern_metadata {
+	const char *name;
+	const char *desc;
+	void (*render)(int h_active, int w_active, int param);
+	void (*service)(int h_active, int w_active, int param);
+};
+
+extern struct pattern_metadata pattern_all_metadata[];
+
+int pattern_current;
 
 void pattern_fill_framebuffer(int h_active, int m_active);
 void pattern_service(void);
-void pattern_next(void);
+int pattern_load(const char* name, const char* param);
 
 #endif /* __PATTERN_H */

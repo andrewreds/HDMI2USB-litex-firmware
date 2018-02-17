@@ -1,8 +1,10 @@
 #include <stdlib.h>
 
+
 #include <generated/csr.h>
 #include <generated/mem.h>
 #include <hw/flags.h>
+#include <string.h>
 #include <system.h>
 #include <time.h>
 
@@ -11,6 +13,8 @@
 #include "stdio_wrap.h"
 #include "uptime.h"
 #include "version_data.h"
+
+static int pattern_param = 0;
 
 unsigned int pattern_framebuffer_base(void) {
 	return FRAMEBUFFER_BASE_PATTERN;
@@ -158,37 +162,57 @@ static void pattern_draw_text(int x, int y, char *ptr) {
 	pattern_draw_text_color(x, y, ptr, YCBCR422_WHITE, YCBCR422_BLACK);
 }
 
-void pattern_next(void) {
-	pattern++;
-	pattern = pattern % PATTERN_MAX;
-	pattern_fill_framebuffer(processor_h_active, processor_v_active);
+static void pattern_render_bars(int h_active, int w_active, int param) {
+	(void) param;
+
+	int i;
+	int color = 0;
+
+	volatile unsigned int *framebuffer = (unsigned int *)(MAIN_RAM_BASE + pattern_framebuffer_base());
+
+	for(i=0; i<h_active*w_active*2/4; i++) {
+		if(i%(h_active/16) == 0)
+			color = inc_color(color);
+		if(color >= 0)
+			framebuffer[i] = color_bar[color];
+	}
 }
 
+static void pattern_render_v_stripes(int h_active, int w_active, int param) {
+	(void) param;
+
+	int i;
+	int color = 0;
+
+	volatile unsigned int *framebuffer = (unsigned int *)(MAIN_RAM_BASE + pattern_framebuffer_base());
+
+	for(i=0; i<h_active*w_active*2/4; i++) {
+		if(i%(h_active/16) == 0)
+			color = inc_color(color);
+		if(color >= 0)
+			framebuffer[i] = 0x801080ff;
+	}
+}
+
+struct pattern_metadata pattern_all_metadata[] = {
+	{"bars", "Vertical color bars", pattern_render_bars, NULL},
+	{"v_stripes", "Vertical color stripes of <param> width", pattern_render_v_stripes, NULL},
+
+	/* All null entry to signify end of array */
+	{NULL, NULL, NULL, NULL}
+};
 
 void pattern_fill_framebuffer(int h_active, int w_active)
 {
 #ifdef MAIN_RAM_BASE
 	int i, j;
-	int color;
 	flush_l2_cache();
-	color = -1;
 	volatile unsigned int *framebuffer = (unsigned int *)(MAIN_RAM_BASE + pattern_framebuffer_base());
-	if(pattern == PATTERN_COLOR_BARS) {
-		/* color bar pattern */
-		for(i=0; i<h_active*w_active*2/4; i++) {
-			if(i%(h_active/16) == 0)
-				color = inc_color(color);
-			if(color >= 0)
-				framebuffer[i] = color_bar[color];
-		}
-	} else {
-		/* vertical black white lines */
-		for(i=0; i<h_active*w_active*2/4; i++) {
-			if(i%(h_active/16) == 0)
-				color = inc_color(color);
-			if(color >= 0)
-				framebuffer[i] = 0x801080ff;
-		}
+
+	struct pattern_metadata* pattern_current_metadata = &pattern_all_metadata[pattern_current];
+
+	if (pattern_current_metadata->render) {
+		pattern_current_metadata->render(h_active, w_active, pattern_param);
 	}
 
 	// draw a border around that.
@@ -248,6 +272,66 @@ void pattern_fill_framebuffer(int h_active, int w_active)
 	flush_l2_cache();
 /* FIXME: Framebuffer Should not even be compiled if no MAIN RAM */
 #endif
+}
+
+int pattern_load(const char* name, const char* param_str) {
+	int i;
+	int new_pattern_index = 0;
+
+	if (name[0] == '\0') {
+		// we want the next pattern
+
+		new_pattern_index = pattern_current + 1;
+
+		if (pattern_all_metadata[new_pattern_index].name == NULL) {
+			// we have reached the end of the array. Wrap back around
+
+			new_pattern_index = 0;
+		}
+	} else if (name[0] >= '0' && name[0] <= '9') {
+		// we have an index into the array, rather then a name
+		new_pattern_index = atoi(name);
+
+		for (i=0; i<=new_pattern_index; i++) {
+			if (pattern_all_metadata[i].name == NULL) {
+				// the index is out of bounds
+
+				return 1;
+			}
+		}
+	} else {
+		// do a text match of the name
+
+		for (i=0;; i++) {
+			if (pattern_all_metadata[i].name == NULL) {
+				// the index is out of bounds
+
+				return 1;
+			}
+
+			if (strcmp(name, pattern_all_metadata[i].name) == 0) {
+				// we have a match
+
+				new_pattern_index = i;
+				break;
+			}
+		}
+	}
+
+	pattern_current = new_pattern_index;
+	pattern_param = atoi(param_str);
+
+	if (pattern_param < 0) {
+		pattern_param = 0;
+	}
+
+	if (pattern_param > 255) {
+		pattern_param = 255;
+	}
+
+	pattern_fill_framebuffer(processor_h_active, processor_v_active);
+
+	return 0;
 }
 
 void pattern_service(void)
