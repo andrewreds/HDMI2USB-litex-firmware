@@ -192,20 +192,87 @@ static void pattern_render_bars(int h_active, int v_active, int param) {
 }
 
 static void pattern_render_v_stripes(int h_active, int v_active, int param) {
-	(void) param;
+	int i, x, y;
 
-	int i;
+	int cols_till_flip;
+	int color, color_index;
 
 	volatile unsigned int *framebuffer = (unsigned int *)(MAIN_RAM_BASE + pattern_framebuffer_base());
 
-	for(i=0; i<h_active*v_active/2; i++) {
-		framebuffer[i] = 0x801080ff;
+	if (param <= 1) {
+		for(i=0; i<h_active*v_active/2; i++) {
+			framebuffer[i] = 0x801080ff;
+		}
+
+		return;
+	}
+
+	color = -1;
+
+	for (y=0,i=0; y < v_active; y++) {
+		cols_till_flip = 1;
+		color_index = 0;
+
+		for (x=0; x < h_active/2; x++,i++) {
+			cols_till_flip --;
+
+			if (cols_till_flip == 0) {
+				color_index = 1 - color_index;
+				cols_till_flip = param;
+
+				if (color_index == 0) {
+					color = YCBCR422_WHITE;
+				} else {
+					color = YCBCR422_BLACK;
+				}
+			}
+
+
+			framebuffer[i] = color;
+		}
+	}
+}
+
+static void pattern_render_h_stripes(int h_active, int v_active, int param) {
+	int i, x, y;
+
+	int rows_till_flip;
+	int color, color_index;
+
+	volatile unsigned int *framebuffer = (unsigned int *)(MAIN_RAM_BASE + pattern_framebuffer_base());
+
+	if (param <= 1) {
+		param = 1;
+	}
+
+	rows_till_flip = 1;
+	color = -1;
+	color_index = 0;
+
+	for (y=0,i=0; y < v_active; y++) {
+		rows_till_flip --;
+
+		if (rows_till_flip == 0) {
+			color_index = 1 - color_index;
+			rows_till_flip = param;
+
+			if (color_index == 0) {
+				color = YCBCR422_WHITE;
+			} else {
+				color = YCBCR422_BLACK;
+			}
+		}
+
+		for (x=0; x < h_active/2; x++,i++) {
+			framebuffer[i] = color;
+		}
 	}
 }
 
 struct pattern_metadata pattern_all_metadata[] = {
 	{"bars", "Vertical color bars", pattern_render_bars, NULL},
 	{"v_stripes", "Vertical color stripes of <param> width", pattern_render_v_stripes, NULL},
+	{"h_stripes", "Horizontal color stripes of <param> height", pattern_render_h_stripes, NULL},
 
 	/* All null entry to signify end of array */
 	{NULL, NULL, NULL, NULL}
@@ -255,7 +322,7 @@ void pattern_fill_framebuffer(int h_active, int v_active)
 		
 		// do the right bar
 		for (j=h_active-2; j<h_active; j++) {
-			framebuffer[(i*h_active)+j] = YCBCR422_YELLOW;
+			framebuffer[(i*h_active)+j] = YCBCR422_WHITE;
 			framebuffer[(i*h_active)+j + (1*h_active/2)] = YCBCR422_WHITE;
 		}		
 	}
