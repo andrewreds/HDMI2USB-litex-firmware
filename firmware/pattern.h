@@ -29,8 +29,8 @@ unsigned int pattern_framebuffer_base(void);
 struct pattern_metadata {
 	const char *name;
 	const char *desc;
-	void (*render)(int h_active, int w_active, int param);
-	void (*service)(int h_active, int w_active, int param);
+	void (*render)(int h_active, int v_active, int param);
+	void (*service)(int h_active, int v_active, int param);
 };
 
 extern struct pattern_metadata pattern_all_metadata[];

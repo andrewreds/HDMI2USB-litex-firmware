@@ -14,13 +14,17 @@
 #include "uptime.h"
 #include "version_data.h"
 
+// #define DEBUG_PATTERN_TIME 1
+
 static int pattern_param = 0;
 
 unsigned int pattern_framebuffer_base(void) {
 	return FRAMEBUFFER_BASE_PATTERN;
 }
 
-static const unsigned int color_bar[8] = {
+#define NUM_BARS 8
+
+static const unsigned int color_bar[NUM_BARS] = {
 	YCBCR422_WHITE,
 	YCBCR422_YELLOW,
 	YCBCR422_CYAN,
@@ -130,10 +134,6 @@ static const unsigned char font5x7[] = {
 	0x08, 0x1C, 0x2A, 0x08, 0x08 // <-
 };
 
-static int inc_color(int color) {
-	color++;
-	return color%8;
-}
 
 static void pattern_draw_text_color(int x, int y, char *ptr, long background_color, long text_color) {
 #ifdef MAIN_RAM_BASE
@@ -162,35 +162,44 @@ static void pattern_draw_text(int x, int y, char *ptr) {
 	pattern_draw_text_color(x, y, ptr, YCBCR422_WHITE, YCBCR422_BLACK);
 }
 
-static void pattern_render_bars(int h_active, int w_active, int param) {
+static void pattern_render_bars(int h_active, int v_active, int param) {
 	(void) param;
 
-	int i;
-	int color = 0;
+	int i, x, y;
+	int color, color_index;
+
+	// how many ints does each bar need (rounding up)
+	int bar_width = (h_active + NUM_BARS - 1) / NUM_BARS / 2;
+	int next_bar;
 
 	volatile unsigned int *framebuffer = (unsigned int *)(MAIN_RAM_BASE + pattern_framebuffer_base());
 
-	for(i=0; i<h_active*w_active*2/4; i++) {
-		if(i%(h_active/16) == 0)
-			color = inc_color(color);
-		if(color >= 0)
-			framebuffer[i] = color_bar[color];
+	for (y=0,i=0; y < v_active; y++) {
+		next_bar = bar_width;
+		color_index = 0;
+		color = color_bar[color_index];
+
+		for (x=0; x < h_active/2; x++,i++) {
+			if (x >= next_bar) {
+				next_bar = next_bar + bar_width;
+				color_index ++;
+				color = color_bar[color_index];
+			}
+
+			framebuffer[i] = color;
+		}
 	}
 }
 
-static void pattern_render_v_stripes(int h_active, int w_active, int param) {
+static void pattern_render_v_stripes(int h_active, int v_active, int param) {
 	(void) param;
 
 	int i;
-	int color = 0;
 
 	volatile unsigned int *framebuffer = (unsigned int *)(MAIN_RAM_BASE + pattern_framebuffer_base());
 
-	for(i=0; i<h_active*w_active*2/4; i++) {
-		if(i%(h_active/16) == 0)
-			color = inc_color(color);
-		if(color >= 0)
-			framebuffer[i] = 0x801080ff;
+	for(i=0; i<h_active*v_active/2; i++) {
+		framebuffer[i] = 0x801080ff;
 	}
 }
 
@@ -202,7 +211,7 @@ struct pattern_metadata pattern_all_metadata[] = {
 	{NULL, NULL, NULL, NULL}
 };
 
-void pattern_fill_framebuffer(int h_active, int w_active)
+void pattern_fill_framebuffer(int h_active, int v_active)
 {
 #ifdef MAIN_RAM_BASE
 	int i, j;
@@ -211,20 +220,33 @@ void pattern_fill_framebuffer(int h_active, int w_active)
 
 	struct pattern_metadata* pattern_current_metadata = &pattern_all_metadata[pattern_current];
 
+#ifdef DEBUG_PATTERN_TIME
+	int t1, t2;
+	static char buffer[32];
+
+	timer0_update_value_write(1);
+	t1 = timer0_reload_read() - timer0_value_read();
+#endif
+
 	if (pattern_current_metadata->render) {
-		pattern_current_metadata->render(h_active, w_active, pattern_param);
+		pattern_current_metadata->render(h_active, v_active, pattern_param);
 	}
+
+#ifdef DEBUG_PATTERN_TIME
+	timer0_update_value_write(1);
+	t2 = timer0_reload_read() - timer0_value_read();
+#endif
 
 	// draw a border around that.
 	for (i=0; i<h_active*2; i++) {
 		framebuffer[i] = YCBCR422_WHITE;
 	}
 	
-	for (i=(w_active-4)*h_active*2/4; i<h_active*w_active*2/4; i++) {
+	for (i=(v_active-4)*h_active*2/4; i<h_active*v_active*2/4; i++) {
 		framebuffer[i] = YCBCR422_WHITE;
 	}
 	
-	for (i=0; i<w_active*2; i++) {
+	for (i=0; i<v_active*2; i++) {
 		// do the left bar
 		for (j=0; j<2; j++) {
 			framebuffer[(i*h_active)+j] = YCBCR422_WHITE;
@@ -233,7 +255,7 @@ void pattern_fill_framebuffer(int h_active, int w_active)
 		
 		// do the right bar
 		for (j=h_active-2; j<h_active; j++) {
-			framebuffer[(i*h_active)+j] = YCBCR422_WHITE;
+			framebuffer[(i*h_active)+j] = YCBCR422_YELLOW;
 			framebuffer[(i*h_active)+j + (1*h_active/2)] = YCBCR422_WHITE;
 		}		
 	}
@@ -267,6 +289,14 @@ void pattern_fill_framebuffer(int h_active, int w_active)
 	pattern_draw_text_color(6, line, "tim", YCBCR422_WHITE, YCBCR422_RED);
 	pattern_draw_text_color(9, line, "videos", YCBCR422_WHITE, YCBCR422_BLUE);
 	pattern_draw_text_color(27, line, "digital", YCBCR422_WHITE, YCBCR422_CYAN);
+#endif
+
+#ifdef DEBUG_PATTERN_TIME
+	line++;
+	line++;
+	// Line 10 - render time
+	sprintf(buffer, "Render time: %d", t2-t1);
+	pattern_draw_text(1, line, buffer);
 #endif
 
 	flush_l2_cache();
