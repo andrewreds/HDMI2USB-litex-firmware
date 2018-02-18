@@ -269,10 +269,83 @@ static void pattern_render_h_stripes(int h_active, int v_active, int param) {
 	}
 }
 
+
+static void pattern_render_circles(int h_active, int v_active, int param) {
+	int i, x, y;
+
+	int cur_radius, cur_radius_sqr, next_radius_sqr, actual_radius_sqr;
+	int scale_factor, dy_sqr;
+
+	int color;
+
+	volatile unsigned int *framebuffer = (unsigned int *)(MAIN_RAM_BASE + pattern_framebuffer_base());
+
+
+	// we want to run Pythagoras' theorem from the center of the screen,
+	// but we don't have a square root function (and if we did it will be slow).
+	// So instead we bound the upper & lower of the integer square of the radius,
+	// then bump it by +- 1 when we are outside of that bounds
+
+	// TODO: Split the pixel pair up to get better horizontal resolution
+	// TODO: We could speed this up by keeping bars on the radisus_sqr this
+	// current color is valid for
+	// TODO: We could speed this up by multiplying by an inverse (rather then
+	//    dividing).
+	// TODO: We could speed this up by exploiting symmetry of a circle
+
+	cur_radius = 0;
+	cur_radius_sqr = 0;
+	next_radius_sqr = 1;
+
+	// the top left point is the furthest away from the center, so use it to
+	// scale all points
+
+	actual_radius_sqr = (h_active/4)*(h_active/4)*4 + (v_active/2)*(v_active/2);
+
+	while (actual_radius_sqr >= next_radius_sqr) {
+		cur_radius ++;
+		cur_radius_sqr = next_radius_sqr;
+		next_radius_sqr = cur_radius * cur_radius;
+	}
+
+	if (param < 1) {
+		param = 1;
+	}
+
+	// We can't use 16 pxs of black. By dividing param (then multiplying
+	// by it later) will quantize the circle. Since scale is an inverse, we
+	// multiply param instead
+	scale_factor = cur_radius/(256-16)*param;
+
+	for (y=0,i=0; y < v_active; y++) {
+		dy_sqr = (v_active/2-y)*(v_active/2-y);
+
+		for (x=0; x < h_active/2; x++,i++) {
+			actual_radius_sqr = (h_active/4-x)*(h_active/4-x)*4 + dy_sqr;
+
+			while (actual_radius_sqr < cur_radius_sqr) {
+				cur_radius --;
+				next_radius_sqr = cur_radius_sqr;
+				cur_radius_sqr = cur_radius * cur_radius;
+			}
+
+			while (actual_radius_sqr >= next_radius_sqr) {
+				cur_radius ++;
+				cur_radius_sqr = next_radius_sqr;
+				next_radius_sqr = cur_radius * cur_radius;
+			}
+
+			color = cur_radius/scale_factor*param + 16;
+			framebuffer[i] = 0x80008000 | color | color << 16;
+		}
+	}
+}
+
 struct pattern_metadata pattern_all_metadata[] = {
 	{"bars", "Vertical color bars", pattern_render_bars, NULL},
 	{"v_stripes", "Vertical color stripes of <param> width", pattern_render_v_stripes, NULL},
 	{"h_stripes", "Horizontal color stripes of <param> height", pattern_render_h_stripes, NULL},
+	{"circles", "Circles rendered with quantum <param>", pattern_render_circles, NULL},
 
 	/* All null entry to signify end of array */
 	{NULL, NULL, NULL, NULL}
